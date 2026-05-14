@@ -1,41 +1,47 @@
 # agri-field-designer
 
-基于 Leaflet 地图的农机作业路径规划工具，支持任意多边形田块绘制与弓字形路径自动生成。
+农机作业路径规划与轨迹分析工具集
 
-## 功能特性
+## 项目结构
 
-- 🗺️ **交互式地图绘制** - 在卫星图/街道图上自由绘制任意形状田块
-- 🔷 **多边形支持** - 支持凸多边形、凹多边形、L形等任意形状
-- 📐 **弓字形路径** - 自动生成贴合边界的弓字形作业路径
-- 📊 **作业统计** - 自动计算面积、路径长度、预计作业时间
-- 💾 **数据导出** - 支持 GeoJSON 格式导出
+```
+agri-field-designer/
+├── agri_planner_interactive.html    # 交互式路径规划工具（Leaflet地图）
+└── rtk_agri_analysis/               # RTK轨迹分析模块
+    ├── data/
+    │   └── gps_trace.json          # GPS轨迹数据
+    ├── core.py                      # 数据处理核心（坐标转换、异常检测）
+    ├── visualize.py                 # Folium交互地图生成
+    ├── report.py                    # Markdown分析报告生成
+    ├── main.py                      # 程序入口
+    └── output/                      # 输出目录
+```
 
-## 快速使用
+## 模块说明
 
-直接在浏览器中打开 `agri_planner_interactive.html` 即可使用。
+### rtk_agri_analysis - RTK轨迹分析
 
-### 操作流程
+**技术栈**: Python 3, numpy, pandas, folium, json
 
-1. 点击 **✏️ 画田块** 进入绘制模式
-2. 在地图上依次点击田块边界顶点
-3. 点击 **✅ 完成绘制** 结束绘制
-4. 设置作业幅宽和速度
-5. 点击 **▶️ 生成作业路径** 生成规划路径
-6. 点击 **💾 导出** 下载 GeoJSON 数据
+**功能**:
+- GPS轨迹数据加载与清洗
+- WGS84坐标系转换
+- 速度异常检测
+- 漏喷/重叠栅格分析
+- Folium交互式地图可视化
+- Markdown作业质量报告自动生成
 
-## 技术栈
+**快速使用**:
+```bash
+cd rtk_agri_analysis
+python main.py
+```
 
-- Leaflet.js - 地图渲染
-- OpenStreetMap / Esri 卫星图 - 底图
-- 原生 JavaScript - 核心算法
+### agri_planner_interactive.html
 
-## 路径算法
+基于 Leaflet 地图的交互式农机作业路径规划工具，支持任意多边形田块绘制与弓字形路径自动生成。
 
-采用扫描线算法，支持任意多边形边界：
-1. 沿纬度方向等间距生成水平扫描线
-2. 求扫描线与多边形边界的交点
-3. 交点配对形成作业段
-4. 相邻作业段交替方向，形成弓字形
+直接用浏览器打开即可使用。
 
 ## License
 

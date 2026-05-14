@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>农机作业地图</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 顶部标题栏 */
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        .header h1 { font-size: 18px; font-weight: 600; }
+        .header .controls { display: flex; gap: 10px; }
+        .header button {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 6px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .header button:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* 地图容器 */
+        #map {
+            flex: 1;
+            width: 100%;
+            z-index: 1;
+        }
+
+        /* 信息面板 */
+        .info-panel {
+            position: fixed;
+            top: 70px;
+            left: 15px;
+            background: white;
+            padding: 15px 18px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            z-index: 1000;
+            min-width: 200px;
+            max-width: 260px;
+        }
+        .info-panel h3 {
+            font-size: 15px;
+            margin-bottom: 10px;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .info-panel .stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+            font-size: 13px;
+        }
+        .info-panel .stat:last-child { border-bottom: none; }
+        .info-panel .stat-label { color: #666; }
+        .info-panel .stat-value { font-weight: 600; color: #2c3e50; }
+        .info-panel .stat-value.danger { color: #e74c3c; }
+        .info-panel .stat-value.success { color: #27ae60; }
+
+        /* 图例面板 */
+        .legend-panel {
+            position: fixed;
+            bottom: 30px;
+            left: 15px;
+            background: white;
+            padding: 12px 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+            z-index: 1000;
+            font-size: 12px;
+        }
+        .legend-panel h4 {
+            font-size: 13px;
+            margin-bottom: 8px;
+            color: #2c3e50;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 3px 0;
+            color: #555;
+        }
+        .legend-color {
+            width: 20px;
+            height: 4px;
+            border-radius: 2px;
+        }
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        /* 提示框样式 */
+        .leaflet-tooltip {
+            background: rgba(44, 62, 80, 0.9) !important;
+            border: none !important;
+            color: white !important;
+            border-radius: 6px !important;
+            font-size: 12px !important;
+            padding: 5px 10px !important;
+        }
+        .leaflet-popup-content-wrapper {
+            border-radius: 10px !important;
+        }
+
+        /* 全屏切换 */
+        .fullscreen-btn {
+            position: fixed;
+            top: 70px;
+            right: 15px;
+            background: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            cursor: pointer;
+            z-index: 1000;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部标题栏 -->
+    <div class="header">
+        <h1>🌾 农机作业轨迹分析</h1>
+        <div class="controls">
+            <button onclick="goHome()">🏠 回到起点</button>
+            <button onclick="toggleFullscreen()">⛶ 全屏</button>
+        </div>
+    </div>
+
+    <!-- 地图 -->
+    <div id="map"></div>
+
+    <!-- 信息面板 -->
+    <div class="info-panel">
+        <h3>📊 作业质量报告</h3>
+        <div class="stat">
+            <span class="stat-label">⏱️ 作业时长</span>
+            <span class="stat-value">9.7 分钟</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">📏 作业里程</span>
+            <span class="stat-value">1787.2 米</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">⚡ 平均速度</span>
+            <span class="stat-value">2.86 m/s</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">⚠️ 异常点数</span>
+            <span class="stat-value danger">7 个</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">✅ 覆盖率</span>
+            <span class="stat-value danger">8.96%</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">🚫 漏喷率</span>
+            <span class="stat-value danger">91.04%</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">🔁 重叠率</span>
+            <span class="stat-value success">0.06%</span>
+        </div>
+    </div>
+
+    <!-- 全屏按钮 -->
+    <button class="fullscreen-btn" onclick="toggleFullscreen()">⛶</button>
+
+    <!-- 图例 -->
+    <div class="legend-panel">
+        <h4>📋 图例</h4>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #2980b9;"></div>
+            <span>正常作业轨迹</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #e74c3c;"></div>
+            <span>停机/超速异常</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #f39c12;"></div>
+            <span>加速度突变</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #2ecc71; border: 2px dashed #2ecc71;"></div>
+            <span>田块边界</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #27ae60;"></div>
+            <span>作业起点</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #e74c3c;"></div>
+            <span>作业终点</span>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // ====== 地图中心点坐标 ======
+        const CENTER = [32.062630056655294, 118.77607230853243];
+
+        // ====== 初始化地图 ======
+        const map = L.map('map', {
+            center: CENTER,
+            zoom: 18,
+            zoomControl: true,
+            attributionControl: true,
+            scrollWheelZoom: true,
+            doubleClickZoom: true,
+            dragging: true,
+            touchZoom: true
+        });
+
+        // ====== 底图选择 ======
+        const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        });
+
+        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 18,
+            attribution: '© Esri'
+        });
+
+        // 默认显示卫星图
+        satelliteLayer.addTo(map);
+
+        // 底图切换
+        const baseMaps = {
+            "🗺️ 街道图": osmLayer,
+            "🛰️ 卫星图": satelliteLayer
+        };
+
+        // ====== 作业轨迹数据 ======
+        // 正常作业段
+        const normalSegments = [
+            [[32.0619999, 118.7749999], [32.0619992, 118.7750631], [32.0620005, 118.7751273], [32.0619999, 118.7751904], [32.0619993, 118.7752547], [32.0620002, 118.7753179], [32.0619993, 118.7753819], [32.0619997, 118.7754443], [32.0619999, 118.7755087], [32.0620002, 118.7755724]],
+            [[32.0621804, 118.7768019], [32.0621796, 118.7767391], [32.0621795, 118.7766755], [32.0621794, 118.7766106], [32.0621798, 118.7765479], [32.0621803, 118.7764848], [32.06218, 118.7764198], [32.0621793, 118.7763567], [32.0621803, 118.7762928], [32.0621797, 118.7762298]],
+            [[32.0623595, 118.7754453], [32.0623586, 118.7755092], [32.0623594, 118.7755728], [32.0623596, 118.7756354], [32.06236, 118.7756996], [32.0623596, 118.7757636], [32.0623594, 118.7758272], [32.0623582, 118.7758896], [32.0623589, 118.7759533], [32.0623589, 118.7760183]],
+            [[32.0625392, 118.7770559], [32.0625388, 118.7769929], [32.0625385, 118.776929], [32.0625385, 118.7768658], [32.0625399, 118.7768019], [32.0625395, 118.7767384], [32.0625388, 118.776675], [32.0625385, 118.7766118], [32.0625394, 118.7765483], [32.0625386, 118.7764836]],
+        ];
+
+        // 绘制正常作业轨迹
+        const traceGroup = L.layerGroup();
+        normalSegments.forEach(segment => {
+            L.polyline(segment, {
+                color: '#2980b9',
+                weight: 4,
+                opacity: 0.85,
+                smoothFactor: 1
+            }).bindPopup('正常作业段').addTo(traceGroup);
+        });
+
+        // ====== 田块边界 ======
+        const fieldBounds = L.rectangle([
+            [32.06198572533238, 118.77498330020262],
+            [32.06327207466762, 118.77713649979738]
+        ], {
+            color: '#2ecc71',
+            weight: 2,
+            dashArray: '6 4',
+            fillOpacity: 0.05,
+            fillColor: '#2ecc71'
+        }).bindPopup('<b>🌾 田块边界</b>');
+
+        // ====== 起点标记 ======
+        const startMarker = L.circleMarker([32.0619999, 118.7749999], {
+            radius: 10,
+            fillColor: '#27ae60',
+            color: '#fff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.9
+        }).bindPopup(`
+            <div style="text-align:center;min-width:180px;">
+                <h4 style="color:#27ae60;margin:0 0 8px;">🟢 作业起点</h4>
+                <p style="margin:4px 0;"><b>时间：</b>08:00:00</p>
+                <p style="margin:4px 0;"><b>坐标：</b>32.062, 118.775</p>
+            </div>
+        `).bindTooltip('作业起点 08:00:00');
+
+        // ====== 终点标记 ======
+        const endMarker = L.circleMarker([32.0632582, 118.7750206], {
+            radius: 10,
+            fillColor: '#e74c3c',
+            color: '#fff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.9
+        }).bindPopup(`
+            <div style="text-align:center;min-width:180px;">
+                <h4 style="color:#e74c3c;margin:0 0 8px;">🔴 作业终点</h4>
+                <p style="margin:4px 0;"><b>时间：</b>08:09:44</p>
+                <p style="margin:4px 0;"><b>坐标：</b>32.063, 118.775</p>
+            </div>
+        `).bindTooltip('作业终点 08:09:44');
+
+        // ====== 异常点数据 ======
+        const anomalies = [
+            { lat: 32.0620006, lng: 118.7759531, type: '停机异常', time: '08:00:30', speed: '0.11 m/s', color: '#e74c3c' },
+            { lat: 32.0621795, lng: 118.7771424, type: '超速/跳点', time: '08:01:20', speed: '11.97 m/s', color: '#e74c3c' },
+            { lat: 32.0621801, lng: 118.7768657, type: '加速度突变', time: '08:01:22', speed: '3.02 m/s', color: '#f39c12' },
+            { lat: 32.0623594, lng: 118.7753813, type: '停机异常', time: '08:02:40', speed: '0.12 m/s', color: '#e74c3c' },
+            { lat: 32.0625204, lng: 118.7773317, type: '超速/跳点', time: '08:03:40', speed: '12.05 m/s', color: '#e74c3c' },
+            { lat: 32.0625389, lng: 118.7771198, type: '加速度突变', time: '08:03:42', speed: '2.99 m/s', color: '#f39c12' },
+            { lat: 32.0627197, lng: 118.7751266, type: '停机异常', time: '08:05:00', speed: '0.13 m/s', color: '#e74c3c' },
+        ];
+
+        const anomalyGroup = L.layerGroup();
+        anomalies.forEach(a => {
+            L.circleMarker([a.lat, a.lng], {
+                radius: 8,
+                fillColor: a.color,
+                color: '#fff',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).bindPopup(`
+                <div style="text-align:center;min-width:160px;">
+                    <h4 style="color:${a.color};margin:0 0 8px;">⚠️ ${a.type}</h4>
+                    <p style="margin:4px 0;"><b>时间：</b>${a.time}</p>
+                    <p style="margin:4px 0;"><b>速度：</b>${a.speed}</p>
+                    <p style="margin:4px 0;"><b>坐标：</b>${a.lat.toFixed(4)}, ${a.lng.toFixed(4)}</p>
+                </div>
+            `).bindTooltip(`${a.type} (${a.speed})`).addTo(anomalyGroup);
+        });
+
+        // ====== 热力图层 (简化版，用渐变圆点模拟) ======
+        const heatGroup = L.layerGroup();
+        const heatPoints = [
+            [32.062, 118.775], [32.0621, 118.7752], [32.0622, 118.7754],
+            [32.0623, 118.7756], [32.0624, 118.7758], [32.0625, 118.776],
+            [32.0626, 118.7762], [32.0627, 118.7764], [32.0628, 118.7766],
+            [32.0629, 118.7768], [32.063, 118.777], [32.0631, 118.7772],
+            [32.0621, 118.7754], [32.0623, 118.7758], [32.0625, 118.7762],
+            [32.0627, 118.7766], [32.0629, 118.777],
+        ];
+        heatPoints.forEach((p, i) => {
+            L.circleMarker(p, {
+                radius: 20,
+                fillColor: `hsl(${120 - i * 7}, 80%, 50%)`,
+                color: 'none',
+                fillOpacity: 0.15,
+                weight: 0
+            }).addTo(heatGroup);
+        });
+
+        // ====== 叠加层控制 ======
+        const overlayMaps = {
+            "🌾 田块边界": fieldBounds,
+            "📍 作业轨迹": traceGroup,
+            "⚠️ 异常点": anomalyGroup,
+            "🔥 覆盖热力": heatGroup,
+            "🟢 起点": startMarker,
+            "🔴 终点": endMarker,
+        };
+
+        L.control.layers(baseMaps, overlayMaps, { position: 'topright', collapsed: false }).addTo(map);
+
+        // 添加起点终点到地图
+        startMarker.addTo(map);
+        endMarker.addTo(map);
+
+        // ====== 功能函数 ======
+        function goHome() {
+            map.setView(CENTER, 18, { animate: true });
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // 打印操作提示
+        console.log('🗺️ 农机作业地图已加载');
+        console.log('💡 提示：拖动移动地图，滚轮缩放，点击标记查看详情');
+    </script>
+</body>
+</html>
