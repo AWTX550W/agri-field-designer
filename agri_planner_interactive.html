@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>农机作业规划 - 交互绘图版</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.header{background:linear-gradient(135deg,#2c3e50,#3498db);color:white;padding:10px 18px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 10px rgba(0,0,0,.2);z-index:1001}
+.header h1{font-size:16px;font-weight:600}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap}
+.toolbar button{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);color:white;padding:5px 12px;border-radius:16px;cursor:pointer;font-size:12px;transition:.2s}
+.toolbar button:hover,.toolbar button.active{background:rgba(255,255,255,.35)}
+.toolbar button:disabled{opacity:0.5;cursor:not-allowed}
+#map{flex:1;width:100%;z-index:1;position:relative}
+#map *{z-index:inherit}
+/* 侧边信息面板 */
+.panel{position:fixed;top:56px;left:12px;background:white;width:240px;max-height:calc(100vh - 120px);overflow-y:auto;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.15);z-index:1000;padding:14px;font-size:13px}
+.panel h3{font-size:14px;color:#2c3e50;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.stat{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:12px}
+.stat-label{color:#888}
+.stat-value{font-weight:600;color:#333}
+.stat-value.danger{color:#e74c3c}
+.stat-value.ok{color:#27ae60}
+.section{margin-top:10px;padding-top:8px;border-top:1px solid #eee}
+.section h4{font-size:12px;color:#555;margin-bottom:5px}
+/* 参数输入 */
+.param-row{display:flex;align-items:center;gap:6px;margin:4px 0;font-size:12px}
+.param-row label{width:60px;color:#666}
+.param-row input{width:60px;padding:2px 4px;border:1px solid #ddd;border-radius:4px;font-size:12px}
+.param-row span{color:#999;font-size:11px}
+.btn-primary{width:100%;padding:7px;background:#27ae60;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;margin-top:8px}
+.btn-primary:hover{background:#219a52}
+.btn-secondary{width:100%;padding:6px;background:#3498db;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;margin-top:5px}
+.btn-secondary:hover{background:#2980b9}
+.btn-danger{width:100%;padding:6px;background:#e74c3c;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;margin-top:5px}
+.btn-danger:hover{background:#c0392b}
+/* 图例 */
+.legend{position:fixed;bottom:15px;left:12px;background:white;padding:10px 13px;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.12);z-index:1000;font-size:11px}
+.legend h4{font-size:12px;color:#333;margin-bottom:5px}
+.legend-item{display:flex;align-items:center;gap:6px;padding:2px 0;color:#555}
+.legend-line{width:22px;height:4px;border-radius:2px}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+/* 操作提示 */
+.hint{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:rgba(44,62,80,.92);color:white;padding:8px 18px;border-radius:20px;font-size:13px;z-index:2000;pointer-events:none;transition:.3s;opacity:0}
+.hint.show{opacity:1}
+/* 绘制模式指示 */
+.drawing-mode{cursor:crosshair !important}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>🌾 农机作业规划 - 交互绘图</h1>
+    <div class="toolbar">
+        <button id="btnDrawField">✏️ 画田块</button>
+        <button id="btnFinishDraw" style="display:none;background:#27ae60;">✅ 完成绘制</button>
+        <button onclick="generatePath()" id="btnGenerate">▶️ 生成路径</button>
+        <button onclick="exportGeoJSON()" id="btnExport">💾 导出</button>
+        <button onclick="clearAll()" id="btnClear">🗑️ 清除</button>
+    </div>
+</div>
+
+<!-- 操作提示 -->
+<div class="hint" id="hint"></div>
+
+<!-- 左侧面板 -->
+<div class="panel" id="panel">
+    <h3>📊 作业参数</h3>
+
+    <div class="section">
+        <h4>📐 田块信息</h4>
+        <div id="fieldInfo" style="color:#999;font-size:12px;">请先点击"✏️ 画田块"在地图上绘制</div>
+    </div>
+
+    <div class="section">
+        <h4>⚙️ 作业参数</h4>
+        <div class="param-row">
+            <label>作业幅宽</label>
+            <input type="number" id="swathWidth" value="2.0" step="0.5" min="0.5">
+            <span>米</span>
+        </div>
+        <div class="param-row">
+            <label>作业速度</label>
+            <input type="number" id="workSpeed" value="2.5" step="0.1" min="0.1">
+            <span>m/s</span>
+        </div>
+        <div class="param-row">
+            <label>路径间距</label>
+            <span id="pathSpacing" style="font-weight:600;color:#2980b9;">2.0</span>
+            <span>米</span>
+        </div>
+        <button class="btn-primary" onclick="generatePath()">▶️ 生成作业路径</button>
+    </div>
+
+    <div class="section" id="resultSection" style="display:none;">
+        <h4>📋 作业报告</h4>
+        <div class="stat"><span class="stat-label">📏 田块面积</span><span class="stat-value" id="rArea">--</span></div>
+        <div class="stat"><span class="stat-label">📐 路径长度</span><span class="stat-value" id="rLength">--</span></div>
+        <div class="stat"><span class="stat-label">⏱️ 预计时间</span><span class="stat-value" id="rTime">--</span></div>
+        <div class="stat"><span class="stat-label">🔄 转弯次数</span><span class="stat-value" id="rTurns">--</span></div>
+        <div class="stat"><span class="stat-label">✅ 覆盖率</span><span class="stat-value ok" id="rCoverage">--</span></div>
+        <button class="btn-danger" onclick="clearPath()">清除路径</button>
+    </div>
+</div>
+
+<!-- 图例 -->
+<div class="legend">
+    <h4>📋 图例</h4>
+    <div class="legend-item"><div class="legend-line" style="background:#2ecc71;"></div>田块边界</div>
+    <div class="legend-item"><div class="legend-line" style="background:#2980b9;"></div>作业路径</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#27ae60;"></div>起点</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#e74c3c;"></div>终点</div>
+    <div class="legend-item"><div class="legend-line" style="background:#95a5a6;"></div>转弯轨迹</div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ============ 全局变量 ============
+let map;
+let fieldPolygon = null;
+let pathGroup = null;
+let fieldCoords = [];
+let tempMarkersLayer = null;
+let tempLineLayer = null;
+let isDrawing = false;
+
+// ============ 初始化地图 ============
+function initMap() {
+    map = L.map('map', {
+        center: [32.06263, 118.77607],
+        zoom: 17,
+        zoomControl: true,
+        scrollWheelZoom: true,
+        doubleClickZoom: true,
+        dragging: true,
+        touchZoom: true
+    });
+
+    // 底图
+    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OSM'
+    });
+    const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 18,
+        attribution: '© Esri'
+    });
+    sat.addTo(map);
+    L.control.layers({
+        '🗺️ 街道图': osm,
+        '🛰️ 卫星图': sat
+    }, {
+        position: 'topright'
+    }).addTo(map);
+}
+
+// ============ 提示函数 ============
+function showHint(msg, duration) {
+    duration = duration || 2000;
+    const h = document.getElementById('hint');
+    h.textContent = msg;
+    h.classList.add('show');
+    setTimeout(function() {
+        h.classList.remove('show');
+    }, duration);
+}
+
+// ============ 按钮事件绑定 ============
+document.getElementById('btnDrawField').addEventListener('click', startDrawField);
+document.getElementById('btnFinishDraw').addEventListener('click', finishDrawField);
+
+// ============ 开始绘制 ============
+function startDrawField() {
+    // 清除旧的
+    if (fieldPolygon) {
+        map.removeLayer(fieldPolygon);
+        fieldPolygon = null;
+    }
+    if (pathGroup) {
+        map.removeLayer(pathGroup);
+        pathGroup = null;
+    }
+    fieldCoords = [];
+
+    // 切换按钮状态
+    document.getElementById('btnDrawField').style.display = 'none';
+    document.getElementById('btnFinishDraw').style.display = 'inline-block';
+
+    // 禁用双击缩放
+    map.doubleClickZoom.disable();
+
+    // 设置鼠标样式
+    map.getContainer().style.cursor = 'crosshair';
+
+    // 创建临时图层
+    tempMarkersLayer = L.layerGroup().addTo(map);
+    tempLineLayer = L.polygon([], {
+        color: '#2ecc71',
+        weight: 2,
+        dashArray: '4 4',
+        fillOpacity: 0
+    }).addTo(map);
+
+    isDrawing = true;
+
+    // 添加点击事件 - 直接用on方法
+    map.on('click', onMapClick);
+
+    showHint('点击地图添加田块边界点，完成后点击"✅ 完成绘制"', 4000);
+}
+
+// ============ 地图点击处理 ============
+function onMapClick(e) {
+    if (!isDrawing) return;
+
+    const latlng = e.latlng;
+    fieldCoords.push([latlng.lat, latlng.lng]);
+
+    // 添加标记点
+    L.circleMarker(latlng, {
+        radius: 5,
+        fillColor: '#2ecc71',
+        color: 'white',
+        weight: 2,
+        fillOpacity: 1
+    }).addTo(tempMarkersLayer);
+
+    // 更新线
+    updateTempLine();
+
+    showHint('已添加 ' + fieldCoords.length + ' 个点，再点击继续，完成后点"完成绘制"', 2000);
+}
+
+// ============ 更新临时线 ============
+function updateTempLine() {
+    if (fieldCoords.length < 2) {
+        tempLineLayer.setLatLngs(fieldCoords);
+    } else {
+        // 闭合多边形预览
+        const closed = fieldCoords.concat([fieldCoords[0]]);
+        tempLineLayer.setLatLngs(closed);
+    }
+}
+
+// ============ 完成绘制 ============
+function finishDrawField() {
+    if (!isDrawing) return;
+
+    isDrawing = false;
+
+    // 移除点击事件
+    map.off('click', onMapClick);
+
+    // 恢复双击缩放
+    map.doubleClickZoom.enable();
+
+    // 恢复鼠标样式
+    map.getContainer().style.cursor = '';
+
+    // 清理临时图层
+    if (tempMarkersLayer) {
+        map.removeLayer(tempMarkersLayer);
+        tempMarkersLayer = null;
+    }
+    if (tempLineLayer) {
+        map.removeLayer(tempLineLayer);
+        tempLineLayer = null;
+    }
+
+    // 切换按钮状态
+    document.getElementById('btnDrawField').style.display = 'inline-block';
+    document.getElementById('btnDrawField').classList.remove('active');
+    document.getElementById('btnFinishDraw').style.display = 'none';
+
+    // 检查点数
+    if (fieldCoords.length < 3) {
+        showHint('至少需要3个点构成田块！', 2000);
+        return;
+    }
+
+    // 闭合多边形（如果首尾不相同）
+    if (fieldCoords[0][0] !== fieldCoords[fieldCoords.length - 1][0] ||
+        fieldCoords[0][1] !== fieldCoords[fieldCoords.length - 1][1]) {
+        fieldCoords.push([fieldCoords[0][0], fieldCoords[0][1]]);
+    }
+
+    // 绘制正式田块
+    fieldPolygon = L.polygon(fieldCoords, {
+        color: '#2ecc71',
+        fillColor: '#2ecc71',
+        fillOpacity: 0.1,
+        weight: 3
+    }).addTo(map);
+
+    // 更新信息
+    updateFieldInfo();
+
+    showHint('田块绘制完成！点击"生成路径"', 2000);
+}
+
+// ============ 更新田块信息 ============
+function updateFieldInfo() {
+    if (fieldCoords.length < 3) return;
+
+    const area = calcPolygonArea(fieldCoords);
+    const perimeter = calcPerimeter(fieldCoords);
+
+    document.getElementById('fieldInfo').innerHTML =
+        '<div style="font-size:12px;">' +
+        '<div>📍 顶点数：<b>' + (fieldCoords.length - 1) + '</b></div>' +
+        '<div>📏 面积：<b>' + (area / 666.67).toFixed(2) + ' 亩</b>（' + area.toFixed(0) + ' m²）</div>' +
+        '<div>📐 周长：<b>' + perimeter.toFixed(1) + ' 米</b></div>' +
+        '</div>';
+}
+
+// ============ 面积计算（鞋带公式）============
+function calcPolygonArea(coords) {
+    let area = 0;
+    const n = coords.length;
+    for (let i = 0; i < n - 1; i++) {
+        area += coords[i][0] * coords[i + 1][1] - coords[i][1] * coords[i + 1][0];
+    }
+    // 经纬度转平方米（1度 ≈ 111000米）
+    return Math.abs(area / 2) * 111000 * 111000;
+}
+
+// ============ 周长计算 ============
+function calcPerimeter(coords) {
+    let d = 0;
+    for (let i = 0; i < coords.length - 1; i++) {
+        d += map.distance(coords[i], coords[i + 1]);
+    }
+    return d;
+}
+
+// ============ 线段与水平线交点 ============
+function lineIntersection(p1, p2, y) {
+    const y1 = p1[0], x1 = p1[1];
+    const y2 = p2[0], x2 = p2[1];
+    if (y1 === y2) return null;
+    if ((y < Math.min(y1, y2)) || (y > Math.max(y1, y2))) return null;
+    const x = x1 + (x2 - x1) * (y - y1) / (y2 - y1);
+    return [y, x];
+}
+
+// ============ 获取扫描线与多边形交点 ============
+function getScanLineIntersections(polygon, y) {
+    const intersections = [];
+    const n = polygon.length;
+    for (let i = 0; i < n; i++) {
+        const p1 = polygon[i];
+        const p2 = polygon[(i + 1) % n];
+        const pt = lineIntersection(p1, p2, y);
+        if (pt) intersections.push(pt);
+    }
+    intersections.sort(function(a, b) {
+        return a[1] - b[1];
+    });
+    return intersections;
+}
+
+// ============ 生成弓字形路径 ============
+function generatePath() {
+    if (fieldCoords.length < 4) {
+        showHint('请先绘制田块！', 2000);
+        return;
+    }
+
+    // 清除旧路径
+    if (pathGroup) {
+        map.removeLayer(pathGroup);
+    }
+    pathGroup = L.layerGroup().addTo(map);
+
+    const swath = parseFloat(document.getElementById('swathWidth').value);
+    const swathDeg = swath / 111000;
+    const speed = parseFloat(document.getElementById('workSpeed').value);
+
+    // 外包矩形
+    const lats = fieldCoords.map(function(c) {
+        return c[0];
+    });
+    const lngs = fieldCoords.map(function(c) {
+        return c[1];
+    });
+    const minLat = Math.min.apply(null, lats);
+    const maxLat = Math.max.apply(null, lats);
+
+    // 生成作业段
+    const allSegments = [];
+    let lat = minLat + swathDeg / 2;
+    let goingRight = true;
+
+    while (lat < maxLat - swathDeg / 4) {
+        const intersections = getScanLineIntersections(fieldCoords, lat);
+
+        // 交点成对，每对形成一个作业段
+        for (let i = 0; i + 1 < intersections.length; i += 2) {
+            const from = goingRight ? intersections[i] : intersections[i + 1];
+            const to = goingRight ? intersections[i + 1] : intersections[i];
+            allSegments.push({
+                from: from,
+                to: to,
+                lat: lat
+            });
+        }
+        lat += swathDeg;
+        goingRight = !goingRight;
+    }
+
+    // 绘制路径
+    let totalLen = 0;
+    let turnCount = 0;
+    let prevEnd = null;
+    let rowIndex = 0;
+
+    allSegments.forEach(function(seg) {
+        rowIndex++;
+
+        // 作业段（蓝色实线）
+        L.polyline([seg.from, seg.to], {
+            color: '#2980b9',
+            weight: 3,
+            opacity: 0.9
+        }).addTo(pathGroup);
+
+        totalLen += map.distance(seg.from, seg.to);
+
+        // 转弯段（灰色虚线）
+        if (prevEnd) {
+            L.polyline([prevEnd, seg.from], {
+                color: '#95a5a6',
+                weight: 2,
+                dashArray: '4 4',
+                opacity: 0.6
+            }).addTo(pathGroup);
+            totalLen += map.distance(prevEnd, seg.from);
+            turnCount++;
+        }
+        prevEnd = seg.to;
+    });
+
+    // 起点终点
+    if (allSegments.length > 0) {
+        L.circleMarker(allSegments[0].from, {
+            radius: 8,
+            fillColor: '#27ae60',
+            color: 'white',
+            weight: 2,
+            fillOpacity: 1
+        }).addTo(pathGroup).bindPopup('🟢 作业起点');
+
+        L.circleMarker(allSegments[allSegments.length - 1].to, {
+            radius: 8,
+            fillColor: '#e74c3c',
+            color: 'white',
+            weight: 2,
+            fillOpacity: 1
+        }).addTo(pathGroup).bindPopup('🔴 作业终点');
+    }
+
+    // 更新报告
+    const area = calcPolygonArea(fieldCoords);
+    const coverage = totalLen > 0 ? Math.min(99.9, (totalLen / (area / swath * 1000)) * 100).toFixed(1) : 0;
+    const time = totalLen / speed;
+    const hours = Math.floor(time / 3600);
+    const mins = Math.floor((time % 3600) / 60);
+
+    document.getElementById('rArea').textContent = (area / 666.67).toFixed(2) + ' 亩';
+    document.getElementById('rLength').textContent = (totalLen / 1000).toFixed(2) + ' km';
+    document.getElementById('rTime').textContent = hours > 0 ? hours + '时' + mins + '分' : mins + '分钟';
+    document.getElementById('rTurns').textContent = turnCount + ' 次';
+    document.getElementById('rCoverage').textContent = coverage + '%';
+    document.getElementById('resultSection').style.display = 'block';
+
+    // 调整视图
+    if (fieldPolygon) {
+        map.fitBounds(fieldPolygon.getBounds().pad(0.1));
+    }
+
+    showHint('路径生成完成！共 ' + rowIndex + ' 行，预计 ' + (hours > 0 ? hours + '时' : '') + mins + '分钟', 3000);
+}
+
+// ============ 清除路径 ============
+function clearPath() {
+    if (pathGroup) {
+        map.removeLayer(pathGroup);
+        pathGroup = null;
+    }
+    document.getElementById('resultSection').style.display = 'none';
+    showHint('路径已清除');
+}
+
+// ============ 清除全部 ============
+function clearAll() {
+    if (fieldPolygon) {
+        map.removeLayer(fieldPolygon);
+        fieldPolygon = null;
+    }
+    clearPath();
+    fieldCoords = [];
+    document.getElementById('fieldInfo').innerHTML = '<span style="color:#999;">请先点击"✏️ 画田块"在地图上绘制</span>';
+    showHint('全部已清除');
+}
+
+// ============ 导出 ============
+function exportGeoJSON() {
+    if (fieldCoords.length < 3) {
+        showHint('没有可导出的数据！', 2000);
+        return;
+    }
+    const geojson = {
+        type: 'FeatureCollection',
+        features: [{
+            type: 'Feature',
+            geometry: {
+                type: 'Polygon',
+                coordinates: fieldCoords
+            },
+            properties: {
+                type: 'field',
+                area: calcPolygonArea(fieldCoords)
+            }
+        }]
+    };
+    const blob = new Blob([JSON.stringify(geojson, null, 2)], {
+        type: 'application/json'
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'field_plan.geojson';
+    a.click();
+    showHint('GeoJSON已导出！');
+}
+
+// ============ 初始化 ============
+initMap();
+showHint('点击"✏️ 画田块"开始在地图上绘制', 3000);
+
+// 幅宽显示
+document.getElementById('swathWidth').addEventListener('input', function() {
+    var v = parseFloat(this.value);
+    document.getElementById('pathSpacing').textContent = v ? v.toFixed(1) : '--';
+});
+</script>
+</body>
+</html>
